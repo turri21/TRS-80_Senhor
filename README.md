@@ -2,7 +2,7 @@
 
 Tested: Working Video 720p, 1080p & Sound
 
-Press the ESC key to boot
+Press the ESC key to proceed into BASIC.
 
 ___
 # [TRS-80](https://en.wikipedia.org/wiki/TRS-80) for MiSTer Platform
