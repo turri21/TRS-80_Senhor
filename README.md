@@ -2,6 +2,9 @@
 
 Tested: Working Video 720p, 1080p & Sound
 
+Press the ESC key to boot
+
+___
 # [TRS-80](https://en.wikipedia.org/wiki/TRS-80) for MiSTer Platform
 ## Model I Support ##
 This is a port of [HT1080Z MiST core](https://github.com/mist-devel/ht1080z) by Jozsef Laszlo to the MiSTer
