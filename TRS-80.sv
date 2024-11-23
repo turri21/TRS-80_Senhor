@@ -7,6 +7,8 @@
 //
 //============================================================================
 
+localparam NBDRIV=4;
+
 module emu
 (
 	//Master input clock
@@ -167,7 +169,7 @@ assign HDMI_FREEZE = 0;
 assign VGA_SCALER  = 0;
 assign VGA_DISABLE = 0;
 
-assign {UART_RTS, UART_TXD, UART_DTR} = 0;
+// assign {UART_RTS, UART_TXD, UART_DTR} = 0;
 assign {SD_SCK, SD_MOSI, SD_CS} = 'Z;
 assign USER_OUT = '1;
 assign {DDRAM_CLK, DDRAM_BURSTCNT, DDRAM_ADDR, DDRAM_DIN, DDRAM_BE, DDRAM_RD, DDRAM_WE} = 0;
@@ -185,10 +187,13 @@ assign LED_USER  = ioctl_download;
 
 `include "build_id.v"
 localparam CONF_STR = {
-	"TRS-80;;",
+	"TRS-80;UART19200:9600:4800:2400:1200:300:110;",
 	"S0,DSKJV1,Mount Disk 0:;",
  	"S1,DSKJV1,Mount Disk 1:;",
+ 	"S2,DSKJV1,Mount Disk 2:;",
+ 	"S3,DSKJV1,Mount Disk 3:;",
 	"-;",
+//	"F3,*,Upload File(s);",
 	"F2,CMD,Load Program;",
 	"F1,CAS,Load Cassette;",
 	"-;",
@@ -203,6 +208,7 @@ localparam CONF_STR = {
 	"OAB,TRISSTICK,None,BIG5,ALPHA;",
 	"O89,Clockspeed (MHz),1.78(1x),3.56(2x),5.34(3x),21.29(12x);",
 	"-;",
+	"RG,Erase memory and reset;",
 	"R0,Reset;",
 	"J,Fire;",
 	"V,v",`BUILD_DATE
@@ -224,17 +230,17 @@ wire [15:0] ioctl_addr;
 wire  [7:0] ioctl_data;
 wire  [7:0] ioctl_index;
 wire	    ioctl_wait;
-wire [31:0] sd_lba[2];
+wire [31:0] sd_lba[NBDRIV];
 wire [31:0] sd_lba_0;
-wire  [1:0] sd_rd;
-wire  [1:0] sd_wr;
-wire  [1:0] sd_ack;
+wire  [3:0] sd_rd;
+wire  [3:0] sd_wr;
+wire  [3:0] sd_ack;
 wire  [8:0] sd_buff_addr;
 wire  [7:0] sd_buff_dout;
 wire  [7:0] sd_buff_din_0;
-wire  [7:0] sd_buff_din[2];
+wire  [7:0] sd_buff_din[NBDRIV];
 wire        sd_buff_wr;
-wire  [1:0] img_mounted;
+wire  [3:0] img_mounted;
 wire        img_readonly;
 wire [63:0] img_size;
 
@@ -244,8 +250,10 @@ wire [10:0] ps2_key;
 wire [21:0] gamma_bus;
 
 wire [15:0] joystick_0, joystick_1;
+wire [31:0] uart_speed;
+wire [7:0] uart_mode;
 
-hps_io #(.CONF_STR(CONF_STR), .WIDE(0), .VDNUM(2) ) hps_io
+hps_io #(.CONF_STR(CONF_STR), .WIDE(0), .VDNUM(NBDRIV) ) hps_io
 (
 	.clk_sys(clk_sys),
 	.HPS_BUS(HPS_BUS),
@@ -278,7 +286,10 @@ hps_io #(.CONF_STR(CONF_STR), .WIDE(0), .VDNUM(2) ) hps_io
 
 	.img_mounted(img_mounted),
 	.img_readonly(img_readonly),
-	.img_size(img_size)
+	.img_size(img_size),
+	
+	 .uart_mode(uart_mode),
+	 .uart_speed(uart_speed)
 );
 
 wire rom_download = ioctl_download && ioctl_index==0;
@@ -298,6 +309,7 @@ cmd_loader cmd_loader
 (
 	.clock(clk_sys),
 	.reset(reset),
+	.erase_mem(status[16]),
 
 	.ioctl_download(ioctl_download),
 	.ioctl_wr(ioctl_wr),
@@ -386,18 +398,32 @@ trs80 trs80
 	.sd_lba(sd_lba_0),
 	.sd_rd(sd_rd),
 	.sd_wr(sd_wr),
-	.sd_ack(sd_ack[0]|sd_ack[1]),
+	.sd_ack(sd_ack[0]|sd_ack[1]|sd_ack[2]|sd_ack[3]),
 	.sd_buff_addr(sd_buff_addr),
 	.sd_buff_dout(sd_buff_dout),
 	.sd_buff_din(sd_buff_din_0),
-	.sd_dout_strobe(sd_buff_wr)
+	.sd_dout_strobe(sd_buff_wr),
 
+	.UART_TXD(UART_TXD),
+	.UART_RXD(UART_RXD),
+	.UART_RTS(UART_RTS),
+	.UART_CTS(UART_CTS),
+	.UART_DTR(UART_DTR),
+	.UART_DSR(UART_DSR),
+	
+	.uart_mode(uart_mode),   // 0=None, 1=PPP or Modem, 2=Console, 3=MIDI 
+	.uart_speed(uart_speed)
 );
+
 
 assign sd_buff_din[0]=sd_buff_din_0;
 assign sd_buff_din[1]=sd_buff_din_0;
+assign sd_buff_din[2]=sd_buff_din_0;
+assign sd_buff_din[3]=sd_buff_din_0;
 assign sd_lba[0]=sd_lba_0;
 assign sd_lba[1]=sd_lba_0;
+assign sd_lba[2]=sd_lba_0;
+assign sd_lba[3]=sd_lba_0;
 
 
 ///////////////////////////////////////////////////
