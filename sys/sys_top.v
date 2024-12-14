@@ -74,7 +74,7 @@ module sys_top
 //	output  [5:0] VGA_B,
 //	inout         VGA_HS,  // VGA_HS is secondary SD card detect when VGA_EN = 1 (inactive)
 //	output		  VGA_VS,
-//	input         VGA_EN,  // active low
+	input         VGA_EN,  // active low
 
 	/////////// AUDIO //////////
 //	output		  AUDIO_L,
@@ -124,14 +124,14 @@ module sys_top
 //	inout   [6:0] USER_IO
 );
 
-///////////////////////// Senhor: Initializations ///////////////////////
+//////////////////////// Senhor: Initializations ////////////////////////
 
 //wire [5:0] VGA_R;
 //wire [5:0] VGA_G;
 //wire [5:0] VGA_B;
 //wire VGA_HS;
 //wire VGA_VS;
-wire VGA_EN = 1'b1;
+//wire VGA_EN = 1'b1;
 
 //wire [3:0] SDIO_DAT;
 //wire SDIO_CMD = 1'b1;
@@ -143,7 +143,7 @@ wire BTN_RESET = 1'b1, BTN_OSD = 1'b1, BTN_USER = 1'b1;
 /////////////////////////////////////////////////////////////////////////
 
 //////////////////////  Secondary SD  ///////////////////////////////////
-wire SD_CS, SD_CLK, SD_MOSI;
+//wire SD_CS, SD_CLK, SD_MOSI;
 
 //`ifndef MISTER_DUAL_SDRAM
 //	wire sd_miso = SW[3] | SDIO_DAT[0];
