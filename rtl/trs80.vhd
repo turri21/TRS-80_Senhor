@@ -51,12 +51,13 @@ Port (
 	clk42m     : in  STD_LOGIC;
 	cpum1_out  : out STD_LOGIC;
 
-	RGB        : out STD_LOGIC_VECTOR (17 downto 0);
+	RGB        : out STD_LOGIC_VECTOR (23 downto 0);
 	HSYNC      : out STD_LOGIC;
 	VSYNC      : out STD_LOGIC;
 	hblank     : out STD_LOGIC;
 	vblank     : out STD_LOGIC;
 	ce_pix     : out STD_LOGIC;
+	skin		  : in STD_LOGIC;
 
 	LED        : out STD_LOGIC;
 
@@ -87,6 +88,12 @@ Port (
 	loader_download : in std_logic;
 	execute_addr	: in std_logic_vector(15 downto 0);
 	execute_enable	: in std_logic;
+	execute_method : in std_logic_vector(1 downto 0);
+	exec_stack : out std_logic_vector(15 downto 0);
+	
+	debug_select_line : in std_logic;
+	dbg_max_addr	: in std_logic_vector(15 downto 0);
+	dbg_min_addr	: in std_logic_vector(15 downto 0);
 
 	img_mounted   	: in std_logic_vector(3 downto 0);
 	img_readonly   	: in std_logic_vector(3 downto 0);
@@ -101,11 +108,11 @@ Port (
 	sd_buff_din  	: out std_logic_vector(7 downto 0);
 	sd_dout_strobe 	: in std_logic;
 
-	UART_TXD       :out  std_logic;
+	UART_TXD       :buffer  std_logic;
 	UART_RXD       :in  std_logic;
-	UART_RTS       :out  std_logic;
+	UART_RTS       :buffer  std_logic;
 	UART_CTS       :in  std_logic;
-	UART_DTR       :out  std_logic;
+	UART_DTR       :buffer  std_logic;
 	UART_DSR       :in  std_logic;
 	
 	uart_mode	   :in std_logic_vector(7 downto 0);
@@ -137,13 +144,12 @@ architecture Behavioral of trs80 is
 -- This is a static line of test to display on the debug line
 -- It is meant to be overidden at points with any changing data values
 --
-type debugbuf is array(0 to 63) of std_logic_vector(7 downto 0);
+type debugbuf is array(0 to 41) of std_logic_vector(7 downto 0);
 
 signal msgbuf : debugbuf:=(
-x"44",x"65",x"62",x"75",x"67",x"20",x"4D",x"65",x"73",x"73",x"61",x"67",x"65",x"3a",x"20",x"20",
-x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",
-x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",
-x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20",x"20"
+x"44",x"65",x"62",x"75",x"67",x"20",x"4D",x"65",x"73",x"73",x"61",x"67",x"65",x"3a",x"20",x"4c",
+x"4F",x"41",x"44",x"20",x"4D",x"69",x"6e",x"3a",x"20",x"20",x"20",x"20",x"20",x"4d",x"61",x"78",
+x"3a",x"20",x"20",x"20",x"20",x"20",x"45",x"78",x"65",x"3a"
 );
 
 --
@@ -224,6 +230,8 @@ component z80_regset is
 	port (
 		execute_addr    : in std_logic_vector(15 downto 0);
 		execute_enable  : in std_logic;
+		execute_method : in std_logic_vector(1 downto 0);
+		REG_SP_ADDR		: IN std_logic_vector(15 downto 0);
 --		dir_in			: in std_logic_vector(211 downto 0);
 		
 		dir_out			: out std_logic_vector(211 downto 0);
@@ -275,7 +283,11 @@ component fdc1771 is
 			sector_out		: out  std_logic_vector(7 downto 0);	
 			data_in_out		: out  std_logic_vector(7 downto 0);	
 			status_out		: out  std_logic_vector(7 downto 0);
-			spare_out		: out  std_logic_vector(15 downto 0)   -- spare for debugging other stuff FLYNN
+			spare_out		: out  std_logic_vector(15 downto 0);   -- spare for debugging other stuff FLYNN
+			
+			UI_floppy_ready : out std_logic_vector(3 downto 0);
+			UI_floppy_write : out std_logic_vector(3 downto 0);
+			UI_floppy_read : out std_logic_vector(3 downto 0)
 		);
 end component ;
 
@@ -352,6 +364,7 @@ signal rgbi : std_logic_vector(3 downto 0);
 signal vramdo, kbdout, video_dout: std_logic_vector(7 downto 0);
 signal video_addr : std_logic_vector(13 downto 0);
 signal video_wr : std_logic;
+signal img_valid  : STD_LOGIC;
 
 signal Fn : std_logic_vector(11 downto 0);
 signal modif : std_logic_vector(2 downto 0);
@@ -383,8 +396,10 @@ signal ht_rgb_amber	: std_logic_vector(17 downto 0);
 
 
 signal dbugmsg_addr  : STD_LOGIC_VECTOR (5 downto 0);
-signal dbugmsg_data  : STD_LOGIC_VECTOR (7 downto 0);
-
+signal dbugmsg_data  : STD_LOGIC_VECTOR (7 downto 0);  -- debug message
+signal dbugldr_data  : STD_LOGIC_VECTOR (7 downto 0);  -- Loader message
+signal dbugmsg_video : STD_LOGIC_VECTOR (7 downto 0);  -- debug message selector
+signal v_debug			: std_logic;
 
 signal io_ram_addr	: std_logic_vector(23 downto 0);
 signal iorrd,iorrd_r	: std_logic;
@@ -420,7 +435,7 @@ signal GCLK : std_logic; -- Pause CPU when loading CMD files (prevent crash)
 signal fdc_irq : std_logic := '1';
 signal old_fdc_irq : std_logic := '1';
 signal fdc_irq_latch : std_logic := '1';
-signal fdc_drq : std_logic;
+-- signal fdc_drq : std_logic;
 signal fdc_wp : std_logic_vector(1 downto 0); -- = "00";
 signal fdc_addr : std_logic_vector(1 downto 0);
 signal fdc_sel : std_logic;
@@ -449,6 +464,11 @@ type motor_state is (stopped, spinup, running);
 signal fdc_motor_state : motor_state;
 signal fdc_motor_on : std_logic := '0';
 signal fdc_motor_countdown : integer := 0;
+-- UI floppy
+signal UI_floppy_ready : std_logic_vector(3 downto 0);
+signal UI_floppy_write : std_logic_vector(3 downto 0);
+signal UI_floppy_read : std_logic_vector(3 downto 0);
+
 -- debugging counter
 signal counter : std_logic_vector(31 downto 0) := (others => '0');  -- Used for debugging via SignalTap
 attribute noprune: boolean; 
@@ -476,10 +496,12 @@ signal ss_dd_be : std_logic_vector(7 downto 0) ;
 signal ss_dd_req : std_logic ;
 signal ss_ram_wr : std_logic ;
 signal ss_DIRSet : std_logic ;
+--  signal REG_SP : std_logic_vector(15 downto 0) ;
 signal widemode_r, widemode_s : std_logic ;
 
 signal ss_ram_addr : std_logic_vector(15 downto 0);
 -- signal ss_debug_ctr : std_logic_vector(15 downto 0);
+signal img_rgb : std_logic_vector(31 downto 0);
 
 begin
 
@@ -489,12 +511,15 @@ GCLK <= '0' when ss_sel='1' or loader_download='1' else cpuClk;
 DIRZ80 <= DIR when ss_sel = '0' else SS_DIR ;
 DIRSetZ80 <= DIRSet when ss_sel = '0' else ss_DIRSet ;
 cpum1_out <= cpum1 ;
+exec_stack <= REG(63 downto 48) ;
 
 regset : z80_regset
 port map
 (
 	execute_addr => execute_addr,
 	execute_enable => execute_enable,
+	execute_method => execute_method,
+	REG_SP_ADDR => REG(63 downto 48),    -- pass the stack pointer
 --	dir_in => REG,
 
 	dir_out	=> DIR,
@@ -656,7 +681,7 @@ port map
 	motor_on => fdc_motor_on,
 
 	irq => fdc_irq,					
-	drq => fdc_drq,
+	-- drq => fdc_drq,
 
 	cpu_addr => cpua(1 downto 0),
 	cpu_sel => fdc_sel2,	-- Calculated on falling edge of fdc_rd or fdc_wr signal
@@ -687,7 +712,11 @@ port map
 	sector_out => dbg_sector,
 	data_in_out => dbg_data_in,
 	status_out => dbg_status,
-	spare_out => dbg_spare
+	spare_out => dbg_spare,
+	
+	UI_floppy_ready => UI_floppy_ready,
+	UI_floppy_write => UI_floppy_write,
+	UI_floppy_read => UI_floppy_read
 
 );
 
@@ -826,18 +855,22 @@ cpudi <= vramdo when vramsel='1' else												-- RAM		($3C00-$3FFF)
 
 			
 -- video ram at 0x3C00
+dbugmsg_video <= dbugmsg_data when debug_select_line='0' else dbugldr_data;
+
 video : entity work.videoctrl
 port map
 (
 	reset => not reset,
 	clk42 => clk42m,
+	skin => skin,
 	a => video_addr,
 	din => video_dout,
 	dout => vramdo,
 	
 	debug_enable => debug,			-- Enable to show disk debugging
 	dbugmsg_addr => dbugmsg_addr,
-	dbugmsg_data => dbugmsg_data,
+	dbugmsg_data => dbugmsg_video,
+	v_debug => v_debug,
 
 	mreq => cpumreq,
 	iorq => cpuiorq,
@@ -855,7 +888,20 @@ port map
 	hsync => hsync,
 	vsync => vsync,
 	hb => hblank,
-	vb => vblank
+	vb => vblank,
+	
+	img_rgb => img_rgb,
+	img_valid => img_valid,
+	
+	UI_floppy_ready => UI_floppy_ready,
+	UI_floppy_write => UI_floppy_write,
+	UI_floppy_read => UI_floppy_read,
+	UART_RX => UART_RXD,
+	UART_TX => UART_TXD,
+	UART_RTS => UART_RTS,
+	UART_CTS => UART_CTS,
+	UART_DTR => UART_DTR,
+	UART_DSR => UART_DSR
 );
 
 
@@ -865,125 +911,83 @@ port map
 process(clk42m)
 begin
 	if rising_edge(clk42m) then
-
 		-- override columns 14/15 to display hex for register reg_37ec:
-		if (dbugmsg_addr = 15) then				-- drive select
-			dbugmsg_data <= x"44";				-- D
-		elsif (dbugmsg_addr = 16) then			
-			if(floppy_select(0)='0') then		-- D0
-				dbugmsg_data <= x"31";
-			else
-				dbugmsg_data <= x"30";
-			end if;
-		elsif (dbugmsg_addr = 17) then			-- D1
-			if(floppy_select(1)='0') then
-				dbugmsg_data <= x"31";
-			else
-				dbugmsg_data <= x"30";
-			end if;
-		elsif (dbugmsg_addr = 18) then			-- D2
-			if(floppy_select(2)='0') then
-				dbugmsg_data <= x"31";
-			else
-				dbugmsg_data <= x"30";
-			end if;
-		elsif (dbugmsg_addr = 19) then			-- D3
-			if(floppy_select(3)='0') then
-				dbugmsg_data <= x"31";
-			else
-				dbugmsg_data <= x"30";
-			end if;
-		elsif (dbugmsg_addr = 20) then							
-			dbugmsg_data <= x"2c";				-- comma
-
-		elsif (dbugmsg_addr = 21) then			-- command						
-			dbugmsg_data <= x"43";				-- C
-		elsif (dbugmsg_addr = 22) then			
-			dbugmsg_data <= hex(conv_integer(dbg_cmd(7 downto 4)));
-		elsif (dbugmsg_addr = 23) then							
-			dbugmsg_data <= hex(conv_integer(dbg_cmd(3 downto 0)));
-		elsif (dbugmsg_addr = 24) then							
-			dbugmsg_data <= x"2c";				-- comma
-
-		elsif (dbugmsg_addr = 25) then			-- track						
-			dbugmsg_data <= x"54";				-- T
-		elsif (dbugmsg_addr = 26) then			
-			dbugmsg_data <= hex(conv_integer(dbg_track(7 downto 4)));
-		elsif (dbugmsg_addr = 27) then							
-			dbugmsg_data <= hex(conv_integer(dbg_track(3 downto 0)));
-		elsif (dbugmsg_addr = 28) then							
-			dbugmsg_data <= x"2c";				-- comma
-
-		elsif (dbugmsg_addr = 29) then			-- sector
-			dbugmsg_data <= x"53";				-- S
-		elsif (dbugmsg_addr = 30) then			
-			dbugmsg_data <= hex(conv_integer(dbg_sector(7 downto 4)));
-		elsif (dbugmsg_addr = 31) then							
-			dbugmsg_data <= hex(conv_integer(dbg_sector(3 downto 0)));
-		elsif (dbugmsg_addr = 32) then							
-			dbugmsg_data <= x"2c";				-- comma
-
-		elsif (dbugmsg_addr = 33) then			-- data written
-			dbugmsg_data <= x"64";				-- d
-		elsif (dbugmsg_addr = 34) then			
-			dbugmsg_data <= hex(conv_integer(dbg_data_in(7 downto 4)));
-		elsif (dbugmsg_addr = 35) then							
-			dbugmsg_data <= hex(conv_integer(dbg_data_in(3 downto 0)));
-		elsif (dbugmsg_addr = 36) then							
-			dbugmsg_data <= x"2c";				-- comma
-
-		elsif (dbugmsg_addr = 37) then			-- status
-			dbugmsg_data <= x"73";				-- s
-		elsif (dbugmsg_addr = 38) then			-- status
-			dbugmsg_data <= hex(conv_integer(dbg_status(7 downto 4)));
-		elsif (dbugmsg_addr = 39) then							
-			dbugmsg_data <= hex(conv_integer(dbg_status(3 downto 0)));
-		elsif (dbugmsg_addr = 40) then							
-			dbugmsg_data <= x"2c";				-- comma
-
-		elsif (dbugmsg_addr = 41) then							
-			dbugmsg_data <= x"78";				-- x
-		elsif (dbugmsg_addr = 42) then
-			dbugmsg_data <= hex(conv_integer(dbg_spare(15 downto 11)));
---			dbugmsg_data <= hex(conv_integer(uart_debug(15 downto 11)));
---			dbugmsg_data <= hex(conv_integer(ss_dd_din(7 downto 4)));
---			dbugmsg_data <= hex(conv_integer(execute_addr(15 downto 12)));
-			
-		elsif (dbugmsg_addr = 43) then
-			dbugmsg_data <= hex(conv_integer(dbg_spare(11 downto 8)));
---			dbugmsg_data <= hex(conv_integer(uart_debug(11 downto 8)));
---			dbugmsg_data <= hex(conv_integer("00" & ss_slot));
---			dbugmsg_data <= hex(conv_integer(execute_addr(11 downto 8)));
-			
-		elsif (dbugmsg_addr = 44) then							
-			dbugmsg_data <= hex(conv_integer(dbg_spare(7 downto 4)));
---			dbugmsg_data <= hex(conv_integer(uart_debug(7 downto 4)));
---			dbugmsg_data <= hex(conv_integer(ss_state(7 downto 4)));
---			dbugmsg_data <= hex(conv_integer(execute_addr(7 downto 4)));
-			
-		elsif (dbugmsg_addr = 45) then							
-			dbugmsg_data <= hex(conv_integer(dbg_spare(3 downto 0)));
---			dbugmsg_data <= hex(conv_integer(uart_debug(3 downto 0)));
---			dbugmsg_data <= hex(conv_integer(ss_state(3 downto 0)));
---			dbugmsg_data <= hex(conv_integer(execute_addr(3 downto 0)));
-			
-		elsif (dbugmsg_addr = 47) then			-- Tick Counter (after space)
-			if(tick_1s='0') then
-				dbugmsg_data <= x"20";
-			else
-				dbugmsg_data <= x"2a";
-			end if;
-
+		case conv_integer(dbugmsg_addr) is
+		when 15 => dbugmsg_data <= x"44";				-- D    "D"
+		when 16 => if(floppy_select(0)='0') then dbugmsg_data <= x"31"; else dbugmsg_data <= x"30"; end if;
+		when 17 => if(floppy_select(1)='0') then dbugmsg_data <= x"31"; else dbugmsg_data <= x"30"; end if;
+		when 18 => if(floppy_select(2)='0') then dbugmsg_data <= x"31"; else dbugmsg_data <= x"30"; end if;
+		when 19 => if(floppy_select(3)='0') then dbugmsg_data <= x"31"; else dbugmsg_data <= x"30"; end if;
+		when 20 => dbugmsg_data <= x"2c";				-- comma		","
+		when 21 => dbugmsg_data <= x"43";				-- command	"C"
+		when 22 => dbugmsg_data <= hex(conv_integer(dbg_cmd(7 downto 4))); 
+		when 23 => dbugmsg_data <= hex(conv_integer(dbg_cmd(3 downto 0))); 
+		when 24 => dbugmsg_data <= x"2c";				-- comma		","
+		when 25 => dbugmsg_data <= x"54";				-- track		"T"
+		when 26 => dbugmsg_data <= hex(conv_integer(dbg_track(7 downto 4))); 
+		when 27 => dbugmsg_data <= hex(conv_integer(dbg_track(3 downto 0))); 
+		when 28 => dbugmsg_data <= x"2c";				-- comma    ","
+		when 29 => dbugmsg_data <= x"53";				-- Sector	"S"
+		when 30 => dbugmsg_data <= hex(conv_integer(dbg_sector(7 downto 4))); 
+		when 31 => dbugmsg_data <= hex(conv_integer(dbg_sector(3 downto 0))); 
+		when 32 => dbugmsg_data <= x"2c";				-- comma		","
+		when 33 => dbugmsg_data <= x"64";				-- data		"d"
+		when 34 => dbugmsg_data <= hex(conv_integer(dbg_data_in(7 downto 4))); 
+		when 35 => dbugmsg_data <= hex(conv_integer(dbg_data_in(3 downto 0))); 
+		when 36 => dbugmsg_data <= x"2c";				-- comma    ","
+		when 37 => dbugmsg_data <= x"73";				-- status	"s"
+		when 38 => dbugmsg_data <= hex(conv_integer(dbg_status(7 downto 4))); 
+		when 39 => dbugmsg_data <= hex(conv_integer(dbg_status(3 downto 0))); 
+		when 40 => dbugmsg_data <= x"2c";				-- comma    ","
+		when 41 => dbugmsg_data <= x"78";				-- command  "x"
+		when 42 => dbugmsg_data <= hex(conv_integer(dbg_spare(15 downto 11))); 
+		when 43 => dbugmsg_data <= hex(conv_integer(dbg_spare(11 downto 8))); 
+		when 44 => dbugmsg_data <= hex(conv_integer(dbg_spare(7 downto 4))); 
+		when 45 => dbugmsg_data <= hex(conv_integer(dbg_spare(3 downto 0))); 
+		
+		when 47 => if(tick_1s='0') then dbugmsg_data <= x"20"; else dbugmsg_data <= x"2a"; end if;
 		--
 		-- otherwise split the remainder: first half just reads from the default text buffer,
 		-- and second half is a calculated value based on position
 		--
-		elsif (dbugmsg_addr < 32) then							-- 1st half from string literal
-			dbugmsg_data <= msgbuf(conv_integer( dbugmsg_addr ));
-		else
-			dbugmsg_data <=  x"20";			-- spaces
-		end if;
+		when others => if (dbugmsg_addr < 16) then dbugmsg_data <= msgbuf(conv_integer( dbugmsg_addr )); 
+				else dbugmsg_data <=  x"20";			-- spaces
+				end if;
+		end case ;
+	end if;
+end process;
+
+
+process(clk42m)
+begin
+	if rising_edge(clk42m) then
+		-- override columns 14/15 to display hex for register reg_37ec:
+		case conv_integer(dbugmsg_addr) is
 		
+		when 24 => dbugldr_data <= hex(conv_integer(dbg_min_addr(15 downto 12))); 
+		when 25 => dbugldr_data <= hex(conv_integer(dbg_min_addr(11 downto 8))); 
+		when 26 => dbugldr_data <= hex(conv_integer(dbg_min_addr(7 downto 4))); 
+		when 27 => dbugldr_data <= hex(conv_integer(dbg_min_addr(3 downto 0))); 
+
+		when 33 => dbugldr_data <= hex(conv_integer(dbg_max_addr(15 downto 12))); 
+		when 34 => dbugldr_data <= hex(conv_integer(dbg_max_addr(11 downto 8))); 
+		when 35 => dbugldr_data <= hex(conv_integer(dbg_max_addr(7 downto 4))); 
+		when 36 => dbugldr_data <= hex(conv_integer(dbg_max_addr(3 downto 0))); 
+
+		when 42 => dbugldr_data <= hex(conv_integer(execute_addr(15 downto 12))); 
+		when 43 => dbugldr_data <= hex(conv_integer(execute_addr(11 downto 8))); 
+		when 44 => dbugldr_data <= hex(conv_integer(execute_addr(7 downto 4))); 
+		when 45 => dbugldr_data <= hex(conv_integer(execute_addr(3 downto 0))); 
+
+		when 47 => if(tick_1s='0') then dbugldr_data <= x"20"; else dbugldr_data <= x"2a"; end if;
+		--
+		-- otherwise split the remainder: first half just reads from the default text buffer,
+		-- and second half is a calculated value based on position
+		--
+		when others => if (dbugmsg_addr < 42) then dbugldr_data <= msgbuf(conv_integer( dbugmsg_addr )); 
+				else dbugldr_data <=  x"20";			-- spaces
+				end if;
+		end case ;
 	end if;
 end process;
 
@@ -1098,10 +1102,12 @@ with rgbi select ht_rgb_amber <=
 
 
 RGB <=
-	ht_rgb_white when disp_color = "00" else
-	ht_rgb_green when disp_color = "01" else
-	ht_rgb_amber when disp_color = "10" else
-	"111110111110111110";
+   img_rgb(15 downto 8) & img_rgb(23 downto 16) & img_rgb(31 downto 24) when img_valid='1' else
+	"000000001111001111110011" when v_debug='1' and rgbi="1011" else
+	ht_rgb_white(17 downto 12) & ht_rgb_white(17 downto 16) & ht_rgb_white(11 downto 6) & ht_rgb_white(11 downto 10) & ht_rgb_white(5 downto 0) & ht_rgb_white(5 downto 4) when disp_color = "00" else
+	ht_rgb_green(17 downto 12) & ht_rgb_green(17 downto 16) & ht_rgb_green(11 downto 6) & ht_rgb_green(11 downto 10) & ht_rgb_green(5 downto 0) & ht_rgb_green(5 downto 4) when disp_color = "01" else
+	ht_rgb_amber(17 downto 12) & ht_rgb_amber(17 downto 16) & ht_rgb_amber(11 downto 6) & ht_rgb_amber(11 downto 10) & ht_rgb_amber(5 downto 0) & ht_rgb_amber(5 downto 4) when disp_color = "10" else
+	"111110111111101111111011";
 
 main_mem : dpram
 generic map (

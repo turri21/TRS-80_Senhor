@@ -70,7 +70,12 @@ module fdc1771 (
 	output     [7:0] sector_out,
 	output     [7:0] data_in_out,
 	output     [7:0] status_out,
-	output	  [15:0] spare_out
+	output	  [15:0] spare_out,
+	
+	// status display graphical UI
+	output	[3:0] UI_floppy_ready,
+	output	[3:0] UI_floppy_read,
+	output	[3:0] UI_floppy_write
 
 );
 
@@ -86,7 +91,7 @@ wire [31:0] CLK_EN = (SYS_CLK / 1000)/clk_div;	// Clock in Khz adjusted for CPU 
 
 // Percom and TRS-80 DD handler
 logic controller_type; // 0=1771(SD), 1=1791(DD)
-logic old_trsdd_enable;
+// logic old_trsdd_enable;
 always @(posedge clk_sys) begin
 	if(!floppy_reset) begin
 		controller_type <= 1'b0;
@@ -153,8 +158,8 @@ reg  [22:0] mounted_size[4] ; // size of mounted image per slot, in sectors
 reg   [3:0] doubleside;
 reg   [7:0] hd;
 
-wire [11:0] image_sectors = controller_type ? img_size[20:9] : img_size[19:8] /* synthesis keep */; // SE - Adjusted for 256 byte sectors
-reg  [11:0] image_sps; // sectors/side
+// wire [11:0] image_sectors = controller_type ? img_size[20:9] : img_size[19:8] /* synthesis keep */; // SE - Adjusted for 256 byte sectors
+// reg  [11:0] image_sps; // sectors/side
 reg   [4:0] image_spt; // sectors/track
 reg   [9:0] image_gap_len;
 reg         image_doubleside;
@@ -170,7 +175,7 @@ always @(*) begin
 //	end else begin
 		// this block is valid for the .st format (or similar arrangement)
 		image_doubleside = 1'b0;
-		image_sps = image_sectors;
+// 		image_sps = image_sectors;
 //		if ( (sector_size_code != 1) && (image_sectors > (80*10)) ) begin 
 		// don't do this for TRS80
 //			image_doubleside = 1'b1;
@@ -200,6 +205,8 @@ always @(*) begin
 		//endcase;
 		image_gap_len = 10'd1;
 //	end
+
+	UI_floppy_ready <= floppy_ready ;
 end
 
 always @(posedge clk_sys) begin
@@ -1198,7 +1205,7 @@ end
 reg cmd_rx /* verilator public */;
 // reg cmd_rx_i;
 reg data_in_strobe;
-reg trsdd_enable;	// TRS-Disk Doubler
+// reg trsdd_enable;	// TRS-Disk Doubler
 
 always @(posedge clk_sys) begin
 	if(!floppy_reset) begin
@@ -1211,7 +1218,7 @@ always @(posedge clk_sys) begin
 		// cmd_rx_i <= 1'b0;
 		cmd_rx <= 1'b0;
 		data_in_strobe <= 0;
-		trsdd_enable <= 1'b0;
+		// trsdd_enable <= 1'b0;
 	end else begin
 		data_in_strobe <= 0;
 
@@ -1289,6 +1296,28 @@ always @(posedge clk_sys) begin
 		if (track_inc_strobe) if (track != 8'hff) track <= track + 8'd1; // note : allow to go over 240, so "seek" always completes.
 		if (track_dec_strobe) if (track != 0) track <= track - 8'd1;
 		if (track_clear_strobe) track <= 8'd0;
+	end
+end
+
+always @(posedge clk_sys) begin
+	if(!floppy_reset) begin
+			UI_floppy_read <= 4'b0000 ;
+			UI_floppy_write <= 4'b0000 ;		
+	end else begin
+		if (busy) begin
+			if (floppy_drive == 4'b1110 || floppy_drive == 4'b1101 || floppy_drive == 4'b1011 || floppy_drive == 4'b0111) begin
+				if (cmd[7:5]==3'b101 || cmd[7:4]==4'b1111) 
+					UI_floppy_write <= floppy_drive ^ 4'b1111 ;
+				else 
+					UI_floppy_read <= floppy_drive ^ 4'b1111 ;
+			end else begin
+				UI_floppy_read <= 4'b0000 ;
+				UI_floppy_write <= 4'b0000 ;
+			end			
+		end else begin
+			UI_floppy_read <= 4'b0000 ;
+			UI_floppy_write <= 4'b0000 ;
+		end
 	end
 end
 
