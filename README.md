@@ -1,6 +1,6 @@
 -=(TRS-80_Senhor notes)=-
 
-Tested: Working Video 720p, 1080p & Sound
+Tested: Working Video 720p, 1080p & Sound.
 
 ___
 # [TRS-80](https://en.wikipedia.org/wiki/TRS-80) for MiSTer Platform
